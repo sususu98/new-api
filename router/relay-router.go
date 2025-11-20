@@ -80,6 +80,9 @@ func SetRelayRouter(router *gin.Engine) {
 		httpRouter.POST("/messages", func(c *gin.Context) {
 			controller.Relay(c, types.RelayFormatClaude)
 		})
+		httpRouter.POST("/messages/count_tokens", func(c *gin.Context) {
+			controller.Relay(c, types.RelayFormatClaude)
+		})
 
 		// chat related routes
 		httpRouter.POST("/completions", func(c *gin.Context) {
