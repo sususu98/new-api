@@ -60,6 +60,10 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
 	}
+	if common.IsClaudeCountTokensPath(info.RequestURLPath) {
+		logger.LogInfo(c, "count_tokens 请求，跳过预扣费/计费")
+		return nil
+	}
 	if priceData.FreeModel {
 		logger.LogInfo(c, common.LogText("model %s is free, skipping pre-consume", info.OriginModelName))
 		return nil
