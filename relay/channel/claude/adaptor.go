@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/dto"
 	"github.com/QuantumNous/new-api/relay/channel"
 	relaycommon "github.com/QuantumNous/new-api/relay/common"
@@ -55,7 +56,12 @@ func (a *Adaptor) Init(info *relaycommon.RelayInfo) {
 func (a *Adaptor) GetRequestURL(info *relaycommon.RelayInfo) (string, error) {
 	baseURL := ""
 	if a.RequestMode == RequestModeMessage {
-		baseURL = fmt.Sprintf("%s/v1/messages", info.ChannelBaseUrl)
+		// 检查是否是 count_tokens 端点
+		if common.IsClaudeCountTokensPath(info.RequestURLPath) {
+			baseURL = fmt.Sprintf("%s/v1/messages/count_tokens", info.ChannelBaseUrl)
+		} else {
+			baseURL = fmt.Sprintf("%s/v1/messages", info.ChannelBaseUrl)
+		}
 	} else {
 		baseURL = fmt.Sprintf("%s/v1/complete", info.ChannelBaseUrl)
 	}

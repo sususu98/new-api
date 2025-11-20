@@ -339,3 +339,31 @@ func BuildURL(base string, endpoint string) string {
 	}
 	return u.ResolveReference(ref).String()
 }
+
+// IsClaudeCountTokensPath 判断是否为 Claude count_tokens 端点路径
+// 该端点为免费端点，不计费、不计入 RPM 统计
+// 支持规范化处理：去除查询参数、去除尾斜杠、忽略大小写
+func IsClaudeCountTokensPath(path string) bool {
+	if path == "" {
+		return false
+	}
+
+	normalized := path
+
+	// 去除查询参数
+	if idx := strings.Index(normalized, "?"); idx != -1 {
+		normalized = normalized[:idx]
+	}
+
+	// 去除尾斜杠
+	normalized = strings.TrimRight(normalized, "/")
+	if normalized == "" {
+		return false
+	}
+
+	// 转为小写以忽略大小写差异
+	normalized = strings.ToLower(normalized)
+
+	// 精确匹配 /v1/messages/count_tokens
+	return normalized == "/v1/messages/count_tokens"
+}
