@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -42,6 +43,25 @@ func maybeMarkClaudeRefusal(c *gin.Context, stopReason string) {
 	if strings.EqualFold(stopReason, "refusal") {
 		common.SetContextKey(c, constant.ContextKeyAdminRejectReason, "claude_stop_reason=refusal")
 	}
+}
+
+func getClaudeFileMimeType(file *dto.MessageFile) (string, bool) {
+	if file == nil || file.FileName == "" {
+		return "", false
+	}
+	dot := strings.LastIndex(file.FileName, ".")
+	if dot == -1 || dot+1 >= len(file.FileName) {
+		return "", false
+	}
+	return service.GetMimeTypeByExtension(file.FileName[dot+1:]), true
+}
+
+func decodeClaudeTextFile(base64Data string) (string, error) {
+	decoded, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return "", err
+	}
+	return string(decoded), nil
 }
 
 func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRequest) (*dto.ClaudeRequest, error) {
@@ -375,6 +395,51 @@ func RequestOpenAI2ClaudeMessage(c *gin.Context, textRequest dto.GeneralOpenAIRe
 								Type: "text",
 								Text: common.GetPointer[string](mediaMessage.Text),
 							})
+						}
+					case dto.ContentTypeFile:
+						file := mediaMessage.GetFile()
+						source := mediaMessage.ToFileSource()
+						if source == nil {
+							continue
+						}
+						base64Data, detectedMimeType, err := service.GetBase64Data(c, source, "formatting file for Claude")
+						if err != nil {
+							return nil, fmt.Errorf("get file data failed: %s", err.Error())
+						}
+						mimeType, hasFileExtension := getClaudeFileMimeType(file)
+						if !hasFileExtension {
+							mimeType = detectedMimeType
+						}
+						switch {
+						case strings.HasPrefix(mimeType, "text/"):
+							text, err := decodeClaudeTextFile(base64Data)
+							if err != nil {
+								return nil, fmt.Errorf("decode text file failed: %s", err.Error())
+							}
+							claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
+								Type: "text",
+								Text: common.GetPointer(text),
+							})
+						case mimeType == "application/pdf":
+							claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
+								Type: "document",
+								Source: &dto.ClaudeMessageSource{
+									Type:      "base64",
+									MediaType: mimeType,
+									Data:      base64Data,
+								},
+							})
+						case strings.HasPrefix(mimeType, "image/"):
+							claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
+								Type: "image",
+								Source: &dto.ClaudeMessageSource{
+									Type:      "base64",
+									MediaType: mimeType,
+									Data:      base64Data,
+								},
+							})
+						default:
+							continue
 						}
 					default:
 						source := mediaMessage.ToFileSource()
@@ -890,6 +955,30 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 }
 
 func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, httpResp *http.Response, data []byte) *types.NewAPIError {
+	// count_tokens 端点单独处理
+	if common.IsClaudeCountTokensPath(info.RequestURLPath) {
+		// count_tokens 响应格式: {"input_tokens": 2095}
+		var countTokensResp map[string]interface{}
+		err := common.Unmarshal(data, &countTokensResp)
+		if err != nil {
+			common.SysError(fmt.Sprintf("count_tokens response unmarshal failed: %v, data: %s", err, string(data)))
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+
+		// 从 input_tokens 字段读取 token 数量
+		if inputTokens, ok := countTokensResp["input_tokens"].(float64); ok {
+			claudeInfo.Usage.PromptTokens = int(inputTokens)
+			claudeInfo.Usage.TotalTokens = int(inputTokens)
+		} else {
+			// 添加错误日志：响应缺少 input_tokens 字段
+			common.SysError(fmt.Sprintf("count_tokens response missing input_tokens field, response: %v", countTokensResp))
+		}
+
+		// 直接返回原始响应
+		service.IOCopyBytesGracefully(c, httpResp, data)
+		return nil
+	}
+
 	var claudeResponse dto.ClaudeResponse
 	err := common.Unmarshal(data, &claudeResponse)
 	if err != nil {
