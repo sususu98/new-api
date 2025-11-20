@@ -316,6 +316,27 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 }
 
 func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, httpResp *http.Response, data []byte) *types.NewAPIError {
+	// count_tokens 端点单独处理
+	if common.IsClaudeCountTokensPath(info.RequestURLPath) {
+		// count_tokens 响应格式: {"input_tokens": 2095}
+		var countTokensResp map[string]interface{}
+		err := common.Unmarshal(data, &countTokensResp)
+		if err != nil {
+			common.SysError(fmt.Sprintf("count_tokens response unmarshal failed: %v, data: %s", err, string(data)))
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+
+		if inputTokens, ok := countTokensResp["input_tokens"].(float64); ok {
+			claudeInfo.Usage.PromptTokens = common.QuotaFromFloat(inputTokens)
+			claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens
+		} else {
+			common.SysError(fmt.Sprintf("count_tokens response missing input_tokens field, response: %v", countTokensResp))
+		}
+
+		service.IOCopyBytesGracefully(c, httpResp, data)
+		return nil
+	}
+
 	var claudeResponse dto.ClaudeResponse
 	err := common.Unmarshal(data, &claudeResponse)
 	if err != nil {

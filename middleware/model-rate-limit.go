@@ -180,6 +180,12 @@ func ModelRequestRateLimit() func(c *gin.Context) {
 			return
 		}
 
+		// count_tokens 端点免费且不计入 RPM 统计，直接放行
+		if common.IsClaudeCountTokensPath(c.Request.URL.Path) {
+			c.Next()
+			return
+		}
+
 		// 计算限流参数
 		duration := rateLimitDurationSeconds(setting.ModelRequestRateLimitDurationMinutes)
 		totalMaxCount := setting.ModelRequestRateLimitCount

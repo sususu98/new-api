@@ -1,6 +1,7 @@
 package oaichat
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -260,6 +261,44 @@ func OpenAIChatRequestToClaudeMessages(c context.Context, info convmeta.Meta, te
 							Text: kitutil.GetPointer[string](mediaMessage.Text),
 						})
 					}
+				case dto.ContentTypeFile:
+					source := mediaMessage.ToFileSource()
+					if source == nil {
+						continue
+					}
+					base64Data, detectedMimeType, err := relaymedia.ResolveBase64Data(c, source, "formatting file for Claude")
+					if err != nil {
+						return nil, fmt.Errorf("get file data failed: %s", err.Error())
+					}
+					mimeType, hasFileExtension := getClaudeFileMimeType(mediaMessage.GetFile())
+					if !hasFileExtension {
+						mimeType = detectedMimeType
+					}
+					filePart := dto.ClaudeMediaMessage{}
+					switch {
+					case strings.HasPrefix(mimeType, "text/"):
+						text, err := base64.StdEncoding.DecodeString(base64Data)
+						if err != nil {
+							return nil, fmt.Errorf("decode text file failed: %s", err.Error())
+						}
+						claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
+							Type: "text",
+							Text: kitutil.GetPointer(string(text)),
+						})
+						continue
+					case mimeType == "application/pdf":
+						filePart.Type = "document"
+					case strings.HasPrefix(mimeType, "image/"):
+						filePart.Type = "image"
+					default:
+						continue
+					}
+					filePart.Source = &dto.ClaudeMessageSource{
+						Type:      "base64",
+						MediaType: mimeType,
+						Data:      base64Data,
+					}
+					claudeMediaMessages = append(claudeMediaMessages, filePart)
 				default:
 					source := mediaMessage.ToFileSource()
 					if source == nil {
@@ -323,4 +362,35 @@ func OpenAIChatRequestToClaudeMessages(c context.Context, info convmeta.Meta, te
 		return nil, sharedclaude.ErrMissingMaxTokens
 	}
 	return &claudeRequest, nil
+}
+
+// getClaudeFileMimeType gives filename extensions precedence over content detection.
+// Keep the supported file mapping explicit: JSON and markup files are sent as
+// text, while unrecognized extensions must not fall back to a detected type.
+func getClaudeFileMimeType(file *dto.MessageFile) (string, bool) {
+	if file == nil {
+		return "", false
+	}
+	dot := strings.LastIndex(file.FileName, ".")
+	if dot == -1 || dot+1 >= len(file.FileName) {
+		return "", false
+	}
+	switch strings.ToLower(file.FileName[dot+1:]) {
+	case "txt", "md", "markdown", "csv", "json", "xml", "html", "htm":
+		return "text/plain", true
+	case "jpg", "jpeg", "jfif":
+		return "image/jpeg", true
+	case "png":
+		return "image/png", true
+	case "gif":
+		return "image/gif", true
+	case "heic":
+		return "image/heic", true
+	case "heif":
+		return "image/heif", true
+	case "pdf":
+		return "application/pdf", true
+	default:
+		return "application/octet-stream", true
+	}
 }
