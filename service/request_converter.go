@@ -19,7 +19,8 @@ func init() {
 			ginCtx, _ := ctx.(*gin.Context)
 			return GetBase64Data(ginCtx, source, reason...)
 		},
-		DecodeBase64FileData: DecodeBase64FileData,
+		DecodeBase64FileData:   DecodeBase64FileData,
+		GetMimeTypeByExtension: GetMimeTypeByExtension,
 	})
 }
 

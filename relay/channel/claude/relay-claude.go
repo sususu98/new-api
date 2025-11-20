@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -215,6 +216,25 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 }
 
 func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, httpResp *http.Response, data []byte) *types.NewAPIError {
+	// count_tokens endpoint has a dedicated response shape.
+	if common.IsClaudeCountTokensPath(info.RequestURLPath) {
+		var countTokensResp map[string]interface{}
+		if err := common.Unmarshal(data, &countTokensResp); err != nil {
+			common.SysError(fmt.Sprintf("count_tokens response unmarshal failed: %v, data: %s", err, string(data)))
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+
+		if inputTokens, ok := countTokensResp["input_tokens"].(float64); ok {
+			claudeInfo.Usage.PromptTokens = int(inputTokens)
+			claudeInfo.Usage.TotalTokens = int(inputTokens)
+		} else {
+			common.SysError(fmt.Sprintf("count_tokens response missing input_tokens field, response: %v", countTokensResp))
+		}
+
+		service.IOCopyBytesGracefully(c, httpResp, data)
+		return nil
+	}
+
 	var claudeResponse dto.ClaudeResponse
 	err := common.Unmarshal(data, &claudeResponse)
 	if err != nil {

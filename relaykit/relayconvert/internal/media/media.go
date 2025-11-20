@@ -9,8 +9,9 @@ import (
 )
 
 type MediaResolver struct {
-	GetBase64Data        func(c context.Context, source types.FileSource, reason ...string) (string, string, error)
-	DecodeBase64FileData func(base64String string) (string, string, error)
+	GetBase64Data          func(c context.Context, source types.FileSource, reason ...string) (string, string, error)
+	DecodeBase64FileData   func(base64String string) (string, string, error)
+	GetMimeTypeByExtension func(ext string) string
 }
 
 var (
@@ -43,4 +44,14 @@ func DecodeBase64FileData(base64String string) (string, string, error) {
 		return "", "", errors.New("relayconvert media resolver is not configured")
 	}
 	return resolver(base64String)
+}
+
+func ResolveMimeTypeByExtension(ext string) string {
+	mediaResolverMu.RLock()
+	resolver := mediaResolver.GetMimeTypeByExtension
+	mediaResolverMu.RUnlock()
+	if resolver == nil {
+		return "application/octet-stream"
+	}
+	return resolver(ext)
 }

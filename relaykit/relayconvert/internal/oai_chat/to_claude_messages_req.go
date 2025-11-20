@@ -1,6 +1,7 @@
 package oaichat
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -25,6 +26,25 @@ type openRouterRequestReasoning struct {
 	Effort    string `json:"effort,omitempty"`
 	MaxTokens int    `json:"max_tokens,omitempty"`
 	Exclude   bool   `json:"exclude,omitempty"`
+}
+
+func getClaudeFileMimeType(file *dto.MessageFile) (string, bool) {
+	if file == nil || file.FileName == "" {
+		return "", false
+	}
+	dot := strings.LastIndex(file.FileName, ".")
+	if dot == -1 || dot+1 >= len(file.FileName) {
+		return "", false
+	}
+	return relaymedia.ResolveMimeTypeByExtension(file.FileName[dot+1:]), true
+}
+
+func decodeClaudeTextFile(base64Data string) (string, error) {
+	decoded, err := base64.StdEncoding.DecodeString(base64Data)
+	if err != nil {
+		return "", err
+	}
+	return string(decoded), nil
 }
 
 func OpenAIChatRequestToClaudeMessages(c context.Context, info convmeta.Meta, textRequest dto.GeneralOpenAIRequest) (*dto.ClaudeRequest, error) {
@@ -346,6 +366,49 @@ func OpenAIChatRequestToClaudeMessages(c context.Context, info convmeta.Meta, te
 						claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
 							Type: "text",
 							Text: kitutil.GetPointer[string](mediaMessage.Text),
+						})
+					}
+				case dto.ContentTypeFile:
+					file := mediaMessage.GetFile()
+					source := mediaMessage.ToFileSource()
+					if source == nil {
+						continue
+					}
+					base64Data, detectedMimeType, err := relaymedia.ResolveBase64Data(c, source, "formatting file for Claude")
+					if err != nil {
+						return nil, fmt.Errorf("get file data failed: %s", err.Error())
+					}
+					mimeType, hasFileExtension := getClaudeFileMimeType(file)
+					if !hasFileExtension {
+						mimeType = detectedMimeType
+					}
+					switch {
+					case strings.HasPrefix(mimeType, "text/"):
+						text, err := decodeClaudeTextFile(base64Data)
+						if err != nil {
+							return nil, fmt.Errorf("decode text file failed: %s", err.Error())
+						}
+						claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
+							Type: "text",
+							Text: kitutil.GetPointer(text),
+						})
+					case mimeType == "application/pdf":
+						claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
+							Type: "document",
+							Source: &dto.ClaudeMessageSource{
+								Type:      "base64",
+								MediaType: mimeType,
+								Data:      base64Data,
+							},
+						})
+					case strings.HasPrefix(mimeType, "image/"):
+						claudeMediaMessages = append(claudeMediaMessages, dto.ClaudeMediaMessage{
+							Type: "image",
+							Source: &dto.ClaudeMessageSource{
+								Type:      "base64",
+								MediaType: mimeType,
+								Data:      base64Data,
+							},
 						})
 					}
 				default:
