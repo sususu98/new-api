@@ -612,12 +612,14 @@ func FormatClaudeResponseInfo(requestMode int, claudeResponse *dto.ClaudeRespons
 			}
 		} else if claudeResponse.Type == "message_delta" {
 			// 最终的usage获取
-			if claudeResponse.Usage.InputTokens > 0 {
-				// 不叠加，只取最新的
-				claudeInfo.Usage.PromptTokens = claudeResponse.Usage.InputTokens
+			if claudeResponse.Usage != nil {
+				if claudeResponse.Usage.InputTokens > 0 {
+					// 不叠加，只取最新的
+					claudeInfo.Usage.PromptTokens = claudeResponse.Usage.InputTokens
+				}
+				claudeInfo.Usage.CompletionTokens = claudeResponse.Usage.OutputTokens
+				claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
 			}
-			claudeInfo.Usage.CompletionTokens = claudeResponse.Usage.OutputTokens
-			claudeInfo.Usage.TotalTokens = claudeInfo.Usage.PromptTokens + claudeInfo.Usage.CompletionTokens
 
 			// 判断是否完整
 			claudeInfo.Done = true
@@ -727,6 +729,30 @@ func ClaudeStreamHandler(c *gin.Context, resp *http.Response, info *relaycommon.
 }
 
 func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claudeInfo *ClaudeResponseInfo, httpResp *http.Response, data []byte, requestMode int) *types.NewAPIError {
+	// count_tokens 端点单独处理
+	if common.IsClaudeCountTokensPath(info.RequestURLPath) {
+		// count_tokens 响应格式: {"input_tokens": 2095}
+		var countTokensResp map[string]interface{}
+		err := common.Unmarshal(data, &countTokensResp)
+		if err != nil {
+			common.SysError(fmt.Sprintf("count_tokens response unmarshal failed: %v, data: %s", err, string(data)))
+			return types.NewError(err, types.ErrorCodeBadResponseBody)
+		}
+
+		// 从 input_tokens 字段读取 token 数量
+		if inputTokens, ok := countTokensResp["input_tokens"].(float64); ok {
+			claudeInfo.Usage.PromptTokens = int(inputTokens)
+			claudeInfo.Usage.TotalTokens = int(inputTokens)
+		} else {
+			// 添加错误日志：响应缺少 input_tokens 字段
+			common.SysError(fmt.Sprintf("count_tokens response missing input_tokens field, response: %v", countTokensResp))
+		}
+
+		// 直接返回原始响应
+		service.IOCopyBytesGracefully(c, httpResp, data)
+		return nil
+	}
+
 	var claudeResponse dto.ClaudeResponse
 	err := common.Unmarshal(data, &claudeResponse)
 	if err != nil {
@@ -738,13 +764,16 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 	if requestMode == RequestModeCompletion {
 		claudeInfo.Usage = service.ResponseText2Usage(c, claudeResponse.Completion, info.UpstreamModelName, info.GetEstimatePromptTokens())
 	} else {
-		claudeInfo.Usage.PromptTokens = claudeResponse.Usage.InputTokens
-		claudeInfo.Usage.CompletionTokens = claudeResponse.Usage.OutputTokens
-		claudeInfo.Usage.TotalTokens = claudeResponse.Usage.InputTokens + claudeResponse.Usage.OutputTokens
-		claudeInfo.Usage.PromptTokensDetails.CachedTokens = claudeResponse.Usage.CacheReadInputTokens
-		claudeInfo.Usage.PromptTokensDetails.CachedCreationTokens = claudeResponse.Usage.CacheCreationInputTokens
-		claudeInfo.Usage.ClaudeCacheCreation5mTokens = claudeResponse.Usage.GetCacheCreation5mTokens()
-		claudeInfo.Usage.ClaudeCacheCreation1hTokens = claudeResponse.Usage.GetCacheCreation1hTokens()
+		// 检查 Usage 是否为 nil（某些端点如 count_tokens 可能不返回 usage）
+		if claudeResponse.Usage != nil {
+			claudeInfo.Usage.PromptTokens = claudeResponse.Usage.InputTokens
+			claudeInfo.Usage.CompletionTokens = claudeResponse.Usage.OutputTokens
+			claudeInfo.Usage.TotalTokens = claudeResponse.Usage.InputTokens + claudeResponse.Usage.OutputTokens
+			claudeInfo.Usage.PromptTokensDetails.CachedTokens = claudeResponse.Usage.CacheReadInputTokens
+			claudeInfo.Usage.PromptTokensDetails.CachedCreationTokens = claudeResponse.Usage.CacheCreationInputTokens
+			claudeInfo.Usage.ClaudeCacheCreation5mTokens = claudeResponse.Usage.GetCacheCreation5mTokens()
+			claudeInfo.Usage.ClaudeCacheCreation1hTokens = claudeResponse.Usage.GetCacheCreation1hTokens()
+		}
 	}
 	var responseData []byte
 	switch info.RelayFormat {
@@ -759,7 +788,7 @@ func HandleClaudeResponseData(c *gin.Context, info *relaycommon.RelayInfo, claud
 		responseData = data
 	}
 
-	if claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
+	if claudeResponse.Usage != nil && claudeResponse.Usage.ServerToolUse != nil && claudeResponse.Usage.ServerToolUse.WebSearchRequests > 0 {
 		c.Set("claude_web_search_requests", claudeResponse.Usage.ServerToolUse.WebSearchRequests)
 	}
 
