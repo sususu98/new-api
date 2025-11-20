@@ -169,6 +169,9 @@ func applyHeaderOverridePlaceholders(template string, c *gin.Context, apiKey str
 // Passthrough rules are applied first, then normal overrides are applied, so explicit overrides win.
 func processHeaderOverride(info *common.RelayInfo, c *gin.Context) (map[string]string, error) {
 	headerOverride := make(map[string]string)
+	if info == nil || info.ChannelMeta == nil {
+		return headerOverride, nil
+	}
 
 	passAll := false
 	var passthroughRegex []*regexp.Regexp
