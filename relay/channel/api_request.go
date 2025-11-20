@@ -42,6 +42,10 @@ func SetupApiRequestHeader(info *common.RelayInfo, c *gin.Context, req *http.Hea
 // 支持的变量：{api_key}
 func processHeaderOverride(info *common.RelayInfo) (map[string]string, error) {
 	headerOverride := make(map[string]string)
+	// 检查 ChannelMeta 是否已初始化
+	if info == nil || info.ChannelMeta == nil {
+		return headerOverride, nil
+	}
 	for k, v := range info.HeadersOverride {
 		str, ok := v.(string)
 		if !ok {
