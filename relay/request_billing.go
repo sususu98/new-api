@@ -56,6 +56,11 @@ func PrepareRequestBilling(c *gin.Context, info *relaycommon.RelayInfo) *types.N
 	}
 	info.SetEstimatePromptTokens(tokens)
 
+	// count_tokens 端点免费，不需要价格检查和预扣费。
+	if common.IsClaudeCountTokensPath(info.RequestURLPath) {
+		logger.LogInfo(c, "count_tokens 请求，跳过预扣费/计费")
+		return nil
+	}
 	priceData, err := helper.ModelPriceHelper(c, info, tokens, meta)
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeModelPriceError, types.ErrOptionWithStatusCode(http.StatusBadRequest))
