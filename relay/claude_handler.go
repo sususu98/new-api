@@ -161,6 +161,9 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		return newAPIError
 	}
 
-	service.PostClaudeConsumeQuota(c, info, usage.(*dto.Usage))
+	// count_tokens 端点不计费
+	if !common.IsClaudeCountTokensPath(info.RequestURLPath) {
+		service.PostClaudeConsumeQuota(c, info, usage.(*dto.Usage))
+	}
 	return nil
 }
