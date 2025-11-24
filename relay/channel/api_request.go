@@ -38,14 +38,36 @@ func SetupApiRequestHeader(info *common.RelayInfo, c *gin.Context, req *http.Hea
 	}
 }
 
-// processHeaderOverride 处理请求头覆盖，支持变量替换
+// processHeaderOverride 处理请求头覆盖，支持变量替换和条件判断
+// 支持两种模式：
+// 1. 简单模式：直接 key-value 对
+// 2. 高级模式：支持条件判断的 operations 配置
 // 支持的变量：{api_key}
-func processHeaderOverride(info *common.RelayInfo) (map[string]string, error) {
+func processHeaderOverride(c *gin.Context, info *common.RelayInfo) (map[string]string, error) {
 	headerOverride := make(map[string]string)
-	// 检查 ChannelMeta 是否已初始化
-	if info == nil || info.ChannelMeta == nil {
+
+	// 检查 info 是否已初始化
+	if info == nil {
 		return headerOverride, nil
 	}
+
+	// 检查是否包含 operations 字段
+	if _, hasOperations := info.HeadersOverride["operations"]; hasOperations {
+		// 尝试解析高级模式 (带条件判断)
+		if operations, ok := common.TryParseHeaderOperations(info.HeadersOverride); ok {
+			// 使用高级模式
+			return common.ApplyHeaderOperations(c, operations, info), nil
+		}
+		// operations 字段存在但解析失败,安全回退:不做任何覆盖
+		channelId := -1
+		if info.ChannelMeta != nil {
+			channelId = info.ChannelMeta.ChannelId
+		}
+		logger.LogWarn(c, fmt.Sprintf("header override operations parse failed for channel_id=%d, falling back to no override", channelId))
+		return headerOverride, nil
+	}
+
+	// 使用简单模式 (向后兼容)
 	for k, v := range info.HeadersOverride {
 		str, ok := v.(string)
 		if !ok {
@@ -75,16 +97,17 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("new request failed: %w", err)
 	}
 	headers := req.Header
-	headerOverride, err := processHeaderOverride(info)
+	err = a.SetupRequestHeader(c, &headers, info)
+	if err != nil {
+		return nil, fmt.Errorf("setup request header failed: %w", err)
+	}
+	// 应用 headerOverride 在 SetupRequestHeader 之后，确保覆盖的优先级最高
+	headerOverride, err := processHeaderOverride(c, info)
 	if err != nil {
 		return nil, err
 	}
 	for key, value := range headerOverride {
 		headers.Set(key, value)
-	}
-	err = a.SetupRequestHeader(c, &headers, info)
-	if err != nil {
-		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
@@ -108,16 +131,17 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	// set form data
 	req.Header.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	headers := req.Header
-	headerOverride, err := processHeaderOverride(info)
+	err = a.SetupRequestHeader(c, &headers, info)
+	if err != nil {
+		return nil, fmt.Errorf("setup request header failed: %w", err)
+	}
+	// 应用 headerOverride 在 SetupRequestHeader 之后，确保覆盖的优先级最高
+	headerOverride, err := processHeaderOverride(c, info)
 	if err != nil {
 		return nil, err
 	}
 	for key, value := range headerOverride {
 		headers.Set(key, value)
-	}
-	err = a.SetupRequestHeader(c, &headers, info)
-	if err != nil {
-		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
@@ -132,16 +156,17 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		return nil, fmt.Errorf("get request url failed: %w", err)
 	}
 	targetHeader := http.Header{}
-	headerOverride, err := processHeaderOverride(info)
+	err = a.SetupRequestHeader(c, &targetHeader, info)
+	if err != nil {
+		return nil, fmt.Errorf("setup request header failed: %w", err)
+	}
+	// 应用 headerOverride 在 SetupRequestHeader 之后，确保覆盖的优先级最高
+	headerOverride, err := processHeaderOverride(c, info)
 	if err != nil {
 		return nil, err
 	}
 	for key, value := range headerOverride {
 		targetHeader.Set(key, value)
-	}
-	err = a.SetupRequestHeader(c, &targetHeader, info)
-	if err != nil {
-		return nil, fmt.Errorf("setup request header failed: %w", err)
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
