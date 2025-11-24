@@ -109,6 +109,12 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	for key, value := range headerOverride {
 		headers.Set(key, value)
 	}
+	// 默认透传客户端 User-Agent（如果没有被 headerOverride 覆盖）
+	if _, exists := headerOverride["User-Agent"]; !exists {
+		if clientUA := c.Request.Header.Get("User-Agent"); clientUA != "" {
+			headers.Set("User-Agent", clientUA)
+		}
+	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -143,6 +149,12 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	for key, value := range headerOverride {
 		headers.Set(key, value)
 	}
+	// 默认透传客户端 User-Agent（如果没有被 headerOverride 覆盖）
+	if _, exists := headerOverride["User-Agent"]; !exists {
+		if clientUA := c.Request.Header.Get("User-Agent"); clientUA != "" {
+			headers.Set("User-Agent", clientUA)
+		}
+	}
 	resp, err := doRequest(c, req, info)
 	if err != nil {
 		return nil, fmt.Errorf("do request failed: %w", err)
@@ -167,6 +179,12 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	for key, value := range headerOverride {
 		targetHeader.Set(key, value)
+	}
+	// 默认透传客户端 User-Agent（如果没有被 headerOverride 覆盖）
+	if _, exists := headerOverride["User-Agent"]; !exists {
+		if clientUA := c.Request.Header.Get("User-Agent"); clientUA != "" {
+			targetHeader.Set("User-Agent", clientUA)
+		}
 	}
 	targetHeader.Set("Content-Type", c.Request.Header.Get("Content-Type"))
 	targetConn, _, err := websocket.DefaultDialer.Dial(fullRequestURL, targetHeader)
