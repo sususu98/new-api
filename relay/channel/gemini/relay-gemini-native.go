@@ -44,6 +44,12 @@ func GeminiTextGenerationHandler(c *gin.Context, info *relaycommon.RelayInfo, re
 
 	usage.CompletionTokenDetails.ReasoningTokens = geminiResponse.UsageMetadata.ThoughtsTokenCount
 
+	// 提取缓存 token
+	usage.PromptTokensDetails.CachedTokens = geminiResponse.UsageMetadata.CachedContentTokenCount
+	if usage.PromptTokensDetails.CachedTokens > usage.PromptTokens {
+		usage.PromptTokensDetails.CachedTokens = usage.PromptTokens
+	}
+
 	for _, detail := range geminiResponse.UsageMetadata.PromptTokensDetails {
 		if detail.Modality == "AUDIO" {
 			usage.PromptTokensDetails.AudioTokens = detail.TokenCount
