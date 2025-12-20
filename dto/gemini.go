@@ -466,6 +466,8 @@ type GeminiUsageMetadata struct {
 	CachedContentTokenCount    int                         `json:"cachedContentTokenCount"`
 	PromptTokensDetails        []GeminiPromptTokensDetails `json:"promptTokensDetails"`
 	ToolUsePromptTokensDetails []GeminiPromptTokensDetails `json:"toolUsePromptTokensDetails"`
+	CacheTokensDetails         []GeminiPromptTokensDetails `json:"cacheTokensDetails"`
+	CandidatesTokensDetails    []GeminiPromptTokensDetails `json:"candidatesTokensDetails"`
 }
 
 type GeminiPromptTokensDetails struct {
