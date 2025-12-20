@@ -269,6 +269,12 @@ func PostClaudeConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, 
 		promptTokens -= cacheCreationTokens
 	}
 
+	// Gemini 的 promptTokens 包含 cacheTokens，需要减去以避免重复计费
+	// Claude 渠道的 input_tokens 不包含 cache_read_input_tokens，无需处理
+	if relayInfo.ChannelType == constant.ChannelTypeGemini {
+		promptTokens -= cacheTokens
+	}
+
 	calculateQuota := 0.0
 	if !relayInfo.PriceData.UsePrice {
 		calculateQuota = float64(promptTokens)
