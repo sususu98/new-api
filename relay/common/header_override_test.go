@@ -416,8 +416,9 @@ func TestApplyHeaderOperations_WithConditions(t *testing.T) {
 					t.Errorf("Expected '%s', got '%s'", tt.expectedResult, result["User-Agent"])
 				}
 			} else {
-				if _, exists := result["User-Agent"]; exists {
-					t.Error("Expected no override, but User-Agent was set")
+				// 条件不满足时应透传原始请求头，避免下游使用默认 UA
+				if result["User-Agent"] != tt.userAgent {
+					t.Errorf("Expected passthrough '%s', got '%s'", tt.userAgent, result["User-Agent"])
 				}
 			}
 		})

@@ -58,6 +58,23 @@ var defaultCacheRatio = map[string]float64{
 	"claude-sonnet-4-5-20250929-thinking": 0.1,
 	"claude-opus-4-5-20251101":            0.1,
 	"claude-opus-4-5-20251101-thinking":   0.1,
+	// Gemini 模型 - Google 官方定价：缓存读取 = 标准输入的 10%
+	"gemini-pro-latest":                   0.1,
+	"gemini-flash-latest":                 0.1,
+	"gemini-1.5-pro-latest":               0.1,
+	"gemini-1.5-flash-latest":             0.1,
+	"gemini-2.0-flash":                    0.1,
+	"gemini-2.5-pro":                      0.1,
+	"gemini-2.5-pro-exp-03-25":            0.1,
+	"gemini-2.5-pro-preview-03-25":        0.1,
+	"gemini-2.5-flash":                    0.1,
+	"gemini-2.5-flash-preview-04-17":      0.1,
+	"gemini-2.5-flash-preview-05-20":      0.1,
+	"gemini-2.5-flash-lite-preview-06-17": 0.1,
+	"gemini-3-pro-preview":                0.1,
+	"gemini-3-imagen-pro-preview":         0.1,
+	"gemini-3-imagen-pro":                 0.1,
+	"gemini-3-pro":                        0.1,
 }
 
 var defaultCreateCacheRatio = map[string]float64{
