@@ -149,25 +149,23 @@ func Relay(c *gin.Context, relayFormat types.RelayFormat) {
 
 	relayInfo.SetEstimatePromptTokens(tokens)
 
-	priceData, err := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
-	if err != nil {
-		newAPIError = types.NewError(err, types.ErrorCodeModelPriceError)
-		return
-	}
-
-	// common.SetContextKey(c, constant.ContextKeyTokenCountMeta, meta)
-
-	// count_tokens 端点免费，不预扣费、不计费
+	// count_tokens 端点免费，不需要价格检查和预扣费
 	isCountTokens := common.IsClaudeCountTokensPath(relayInfo.RequestURLPath)
-
 	if isCountTokens {
 		logger.LogInfo(c, "count_tokens 请求，跳过预扣费/计费")
-	} else if priceData.FreeModel {
-		logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
 	} else {
-		newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
-		if newAPIError != nil {
+		priceData, priceErr := helper.ModelPriceHelper(c, relayInfo, tokens, meta)
+		if priceErr != nil {
+			newAPIError = types.NewError(priceErr, types.ErrorCodeModelPriceError)
 			return
+		}
+		if priceData.FreeModel {
+			logger.LogInfo(c, fmt.Sprintf("模型 %s 免费，跳过预扣费", relayInfo.OriginModelName))
+		} else {
+			newAPIError = service.PreConsumeBilling(c, priceData.QuotaToPreConsume, relayInfo)
+			if newAPIError != nil {
+				return
+			}
 		}
 	}
 
