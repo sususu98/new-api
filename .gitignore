@@ -29,5 +29,6 @@ data/
 .gomodcache/
 .gocache-temp
 .gopath
+.claude/
 
 token_estimator_test.go
