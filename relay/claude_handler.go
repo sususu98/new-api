@@ -47,6 +47,18 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 	adaptor.Init(info)
 
+	isCountTokens := common.IsClaudeCountTokensPath(info.RequestURLPath)
+
+	var requestBody io.Reader
+
+	if isCountTokens {
+		// count_tokens: 直接透传客户端请求体，不做任何修改
+		storage, err := common.GetBodyStorage(c)
+		if err != nil {
+			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
+		}
+		requestBody = common.ReaderOnly(storage)
+	} else {
 	if request.MaxTokens == nil || *request.MaxTokens == 0 {
 		defaultMaxTokens := uint(model_setting.GetClaudeSettings().GetDefaultMaxTokens(request.Model))
 		request.MaxTokens = &defaultMaxTokens
@@ -144,45 +156,43 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		service.PostTextConsumeQuota(c, info, usage, nil)
 		return nil
 	}
-
-	var requestBody io.Reader
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
-		storage, err := common.GetBodyStorage(c)
-		if err != nil {
-			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
-		}
-		requestBody = common.ReaderOnly(storage)
-	} else {
-		convertedRequest, err := adaptor.ConvertClaudeRequest(c, info, request)
-		if err != nil {
-			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-		}
-		relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
-		jsonData, err := common.Marshal(convertedRequest)
-		if err != nil {
-			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-		}
-
-		// remove disabled fields for Claude API
-		jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings, info.ChannelSetting.PassThroughBodyEnabled)
-		if err != nil {
-			return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
-		}
-
-		// apply param override
-		if len(info.ParamOverride) > 0 {
-			jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+		if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+			storage, err := common.GetBodyStorage(c)
 			if err != nil {
-				return newAPIErrorFromParamOverride(err)
+				return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
 			}
-		}
+			requestBody = common.ReaderOnly(storage)
+		} else {
+			convertedRequest, convErr := adaptor.ConvertClaudeRequest(c, info, request)
+			if convErr != nil {
+				return types.NewError(convErr, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+			relaycommon.AppendRequestConversionFromRequest(info, convertedRequest)
+			jsonData, err := common.Marshal(convertedRequest)
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
 
-		if common.DebugEnabled {
-			println("requestBody: ", string(jsonData))
+			// remove disabled fields for Claude API
+			jsonData, err = relaycommon.RemoveDisabledFields(jsonData, info.ChannelOtherSettings, info.ChannelSetting.PassThroughBodyEnabled)
+			if err != nil {
+				return types.NewError(err, types.ErrorCodeConvertRequestFailed, types.ErrOptionWithSkipRetry())
+			}
+
+			// apply param override
+			if len(info.ParamOverride) > 0 {
+				jsonData, err = relaycommon.ApplyParamOverrideWithRelayInfo(jsonData, info)
+				if err != nil {
+					return newAPIErrorFromParamOverride(err)
+				}
+			}
+
+			if common.DebugEnabled {
+				println("requestBody: ", string(jsonData))
+			}
+			requestBody = bytes.NewBuffer(jsonData)
 		}
-		requestBody = bytes.NewBuffer(jsonData)
 	}
-
 	statusCodeMappingStr := c.GetString("status_code_mapping")
 	var httpResp *http.Response
 	resp, err := adaptor.DoRequest(c, info, requestBody)
@@ -210,7 +220,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 
 	// count_tokens 端点不计费
-	if !common.IsClaudeCountTokensPath(info.RequestURLPath) {
+	if !isCountTokens {
 		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	}
 	return nil
