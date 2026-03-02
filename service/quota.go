@@ -276,6 +276,9 @@ func PostClaudeConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, 
 	// Claude 渠道的 input_tokens 不包含 cache_read_input_tokens，无需处理
 	if relayInfo.ChannelType == constant.ChannelTypeGemini {
 		promptTokens -= cacheTokens
+		if promptTokens < 0 {
+			promptTokens = 0
+		}
 	}
 
 	calculateQuota := 0.0
