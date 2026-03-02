@@ -1,0 +1,7 @@
+interface:
+  display_name: "Model Metadata Organizer"
+  short_description: "Organize model vendors, icons, and prefix rules"
+  default_prompt: "Use $model-metadata-organizer to organize model vendor, icon, and prefix metadata for new-api."
+
+policy:
+  allow_implicit_invocation: true
