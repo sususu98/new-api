@@ -284,6 +284,16 @@ func applyHeaderOverrideToRequest(req *http.Request, headerOverride map[string]s
 	}
 }
 
+// headerOverrideHasKey checks if headerOverride map contains a key (case-insensitive)
+func headerOverrideHasKey(headerOverride map[string]string, key string) bool {
+	for k := range headerOverride {
+		if strings.EqualFold(k, key) {
+			return true
+		}
+	}
+	return false
+}
+
 func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody io.Reader) (*http.Response, error) {
 	fullRequestURL, err := a.GetRequestURL(info)
 	if err != nil {
@@ -309,7 +319,7 @@ func DoApiRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
 	// 默认透传客户端 User-Agent（如果没有被 headerOverride 覆盖）
-	if _, exists := headerOverride["User-Agent"]; !exists {
+	if !headerOverrideHasKey(headerOverride, "User-Agent") {
 		if clientUA := c.Request.Header.Get("User-Agent"); clientUA != "" {
 			req.Header.Set("User-Agent", clientUA)
 		}
@@ -348,7 +358,7 @@ func DoFormRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBod
 	}
 	applyHeaderOverrideToRequest(req, headerOverride)
 	// 默认透传客户端 User-Agent（如果没有被 headerOverride 覆盖）
-	if _, exists := headerOverride["User-Agent"]; !exists {
+	if !headerOverrideHasKey(headerOverride, "User-Agent") {
 		if clientUA := c.Request.Header.Get("User-Agent"); clientUA != "" {
 			req.Header.Set("User-Agent", clientUA)
 		}
@@ -380,7 +390,7 @@ func DoWssRequest(a Adaptor, c *gin.Context, info *common.RelayInfo, requestBody
 		targetHeader.Set(key, value)
 	}
 	// 默认透传客户端 User-Agent（如果没有被 headerOverride 覆盖）
-	if _, exists := headerOverride["User-Agent"]; !exists {
+	if !headerOverrideHasKey(headerOverride, "User-Agent") {
 		if clientUA := c.Request.Header.Get("User-Agent"); clientUA != "" {
 			targetHeader.Set("User-Agent", clientUA)
 		}
