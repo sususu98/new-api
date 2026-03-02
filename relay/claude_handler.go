@@ -38,8 +38,11 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	if err != nil {
 		return types.NewError(err, types.ErrorCodeChannelModelMappedError, types.ErrOptionWithSkipRetry())
 	}
-	if err := helper.ApplyReasoningModelSuffix(c, info, request); err != nil {
-		return newConvertRequestFailedError(c, info, err)
+	isCountTokens := common.IsClaudeCountTokensPath(info.RequestURLPath)
+	if !isCountTokens {
+		if err := helper.ApplyReasoningModelSuffix(c, info, request); err != nil {
+			return newConvertRequestFailedError(c, info, err)
+		}
 	}
 
 	adaptor := GetAdaptor(info.ApiType)
@@ -48,7 +51,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 	adaptor.Init(info)
 
-	if info.ChannelSetting.SystemPrompt != "" {
+	if !isCountTokens && info.ChannelSetting.SystemPrompt != "" {
 		if request.System == nil {
 			request.SetStringSystem(info.ChannelSetting.SystemPrompt)
 		} else if info.ChannelSetting.SystemPromptOverride {
@@ -73,7 +76,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 		}
 	}
 
-	if !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
+	if !isCountTokens && !model_setting.GetGlobalSettings().PassThroughRequestEnabled &&
 		!info.ChannelSetting.PassThroughBodyEnabled &&
 		service.ShouldChatCompletionsUseResponsesGlobal(info.ChannelId, info.ChannelType, info.OriginModelName) {
 		usage, newApiErr := textRequestViaResponses(c, info, adaptor, request)
@@ -86,7 +89,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 
 	var requestBody io.Reader
-	if model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
+	if isCountTokens || model_setting.GetGlobalSettings().PassThroughRequestEnabled || info.ChannelSetting.PassThroughBodyEnabled {
 		storage, err := common.GetBodyStorage(c)
 		if err != nil {
 			return types.NewErrorWithStatusCode(err, types.ErrorCodeReadRequestBodyFailed, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
@@ -153,7 +156,7 @@ func ClaudeHelper(c *gin.Context, info *relaycommon.RelayInfo) (newAPIError *typ
 	}
 
 	// count_tokens 端点不计费
-	if !common.IsClaudeCountTokensPath(info.RequestURLPath) {
+	if !isCountTokens {
 		service.PostTextConsumeQuota(c, info, usage.(*dto.Usage), nil)
 	}
 	return nil
