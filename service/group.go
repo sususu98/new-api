@@ -33,6 +33,12 @@ func GetUserUsableGroups(userGroup string) map[string]string {
 			groupsCopy[userGroup] = "用户分组"
 		}
 	}
+	for _, autoGroup := range setting.GetAutoGroups() {
+		if _, ok := groupsCopy[autoGroup]; ok {
+			groupsCopy["auto"] = setting.GetUsableGroupDescription("auto")
+			break
+		}
+	}
 	return groupsCopy
 }
 
