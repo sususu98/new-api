@@ -12,10 +12,12 @@ import (
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/i18n"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/QuantumNous/new-api/service/authz"
+	"github.com/QuantumNous/new-api/setting"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
@@ -533,4 +535,93 @@ func TestApplyWebSocketSubprotocolAuthorizationReadsRepeatedHeaders(t *testing.T
 
 	assert.True(t, applyWebSocketSubprotocolAuthorization(header))
 	assert.Equal(t, "Bearer sk-later-field", header.Get("Authorization"))
+}
+
+func TestTokenAuthAutoGroupValidation(t *testing.T) {
+	require.NoError(t, i18n.Init())
+	// Token lookup by key uses the dialect column names that only InitDB
+	// initializes; run it once on a throwaway SQLite database first.
+	previousMaster := common.IsMasterNode
+	previousSQLitePath := common.SQLitePath
+	previousMainType := common.MainDatabaseType()
+	previousLogType := common.LogDatabaseType()
+	t.Cleanup(func() {
+		common.IsMasterNode = previousMaster
+		common.SQLitePath = previousSQLitePath
+		common.SetDatabaseTypes(previousMainType, previousLogType)
+	})
+	t.Setenv("SQL_DSN", "local")
+	common.IsMasterNode = false
+	common.SQLitePath = fmt.Sprintf("file:%s_init?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	require.NoError(t, model.InitDB())
+	if sqlDB, err := model.DB.DB(); err == nil {
+		_ = sqlDB.Close()
+	}
+
+	setupDashboardAuthMiddlewareTest(t)
+	previousGroups := setting.UserUsableGroups2JSONString()
+	previousAutoGroups := setting.AutoGroups2JsonString()
+	t.Cleanup(func() {
+		require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(previousGroups))
+		require.NoError(t, setting.UpdateAutoGroupsByJsonString(previousAutoGroups))
+	})
+	require.NoError(t, setting.UpdateUserUsableGroupsByJSONString(`{"default":"Default"}`))
+	require.NoError(t, setting.UpdateAutoGroupsByJsonString(`[]`))
+	require.NotContains(t, service.GetUserUsableGroups("default"), "auto")
+	require.NoError(t, model.DB.AutoMigrate(&model.Token{}))
+
+	user := createMiddlewarePATUser(t, "auto-group-user", "user-access-token")
+	user.Group = "default"
+	require.NoError(t, model.DB.Save(user).Error)
+
+	autoToken := &model.Token{
+		UserId:         user.Id,
+		Key:            "autogrouptokenkey12345",
+		Status:         common.TokenStatusEnabled,
+		UnlimitedQuota: true,
+		Group:          "auto",
+	}
+	require.NoError(t, model.DB.Create(autoToken).Error)
+
+	forbiddenToken := &model.Token{
+		UserId:         user.Id,
+		Key:            "forbiddengrouptokenkey12345",
+		Status:         common.TokenStatusEnabled,
+		UnlimitedQuota: true,
+		Group:          "non-existent-group",
+	}
+	require.NoError(t, model.DB.Create(forbiddenToken).Error)
+
+	router := gin.New()
+	router.GET("/v1/models", TokenAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"group":       common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
+			"token_group": common.GetContextKeyString(c, constant.ContextKeyTokenGroup),
+		})
+	})
+
+	// 1. Auto group token should succeed and set context group to "auto"
+	reqAuto := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	reqAuto.Header.Set("Authorization", "Bearer sk-autogrouptokenkey12345")
+	respAuto := httptest.NewRecorder()
+	router.ServeHTTP(respAuto, reqAuto)
+
+	assert.Equal(t, http.StatusOK, respAuto.Code)
+	var autoBody struct {
+		Group      string `json:"group"`
+		TokenGroup string `json:"token_group"`
+	}
+	require.NoError(t, common.Unmarshal(respAuto.Body.Bytes(), &autoBody))
+	assert.Equal(t, "auto", autoBody.Group)
+	assert.Equal(t, "auto", autoBody.TokenGroup)
+
+	// 2. Forbidden group token should return 403
+	reqForbidden := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	reqForbidden.Header.Set("Authorization", "Bearer sk-forbiddengrouptokenkey12345")
+	respForbidden := httptest.NewRecorder()
+	router.ServeHTTP(respForbidden, reqForbidden)
+
+	assert.Equal(t, http.StatusForbidden, respForbidden.Code)
+	assert.Contains(t, respForbidden.Body.String(), "non-existent-group")
 }
