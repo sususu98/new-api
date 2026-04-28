@@ -58,6 +58,9 @@ func OaiResponsesToChatHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	if oaiError := responsesResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
+	if err := helper.ApplyActualBillingServiceTier(info, responsesResp.ServiceTier); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
 
 	chatId := helper.GetResponseID(c)
 	chatResp, usage, err := service.ResponsesResponseToChatCompletionsResponse(&responsesResp, chatId)
@@ -444,6 +447,10 @@ func OaiResponsesToChatStreamHandler(c *gin.Context, info *relaycommon.RelayInfo
 
 		case "response.completed":
 			if streamResp.Response != nil {
+				if err := helper.ApplyActualBillingServiceTier(info, streamResp.Response.ServiceTier); err != nil {
+					sr.Error(err)
+					return
+				}
 				if streamResp.Response.Model != "" {
 					model = streamResp.Response.Model
 				}

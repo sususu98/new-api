@@ -81,10 +81,11 @@ func ResponsesResponseToChatCompletionsResponse(resp *dto.OpenAIResponsesRespons
 	}
 
 	out := &dto.OpenAITextResponse{
-		Id:      id,
-		Object:  "chat.completion",
-		Created: created,
-		Model:   resp.Model,
+		Id:          id,
+		Object:      "chat.completion",
+		Created:     created,
+		Model:       resp.Model,
+		ServiceTier: resp.ServiceTier,
 		Choices: []dto.OpenAITextResponseChoice{
 			{
 				Index:        0,

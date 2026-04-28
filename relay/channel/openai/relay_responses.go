@@ -33,6 +33,9 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
 	}
+	if err := helper.ApplyActualBillingServiceTier(info, responsesResponse.ServiceTier); err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
 
 	if responsesResponse.HasImageGenerationCall() {
 		c.Set("image_generation_call", true)
@@ -92,6 +95,10 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 		switch streamResponse.Type {
 		case "response.completed":
 			if streamResponse.Response != nil {
+				if err := helper.ApplyActualBillingServiceTier(info, streamResponse.Response.ServiceTier); err != nil {
+					sr.Error(err)
+					return
+				}
 				if streamResponse.Response.Usage != nil {
 					if streamResponse.Response.Usage.InputTokens != 0 {
 						usage.PromptTokens = streamResponse.Response.Usage.InputTokens

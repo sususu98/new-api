@@ -36,6 +36,8 @@ var defaultCacheRatio = map[string]float64{
 	"gpt-5-mini-2025-08-07":               0.1,
 	"gpt-5-nano":                          0.1,
 	"gpt-5-nano-2025-08-07":               0.1,
+	"gpt-5.5":                             0.1,
+	"gpt-5.5-2026-04-23":                  0.1,
 	"deepseek-chat":                       0.25,
 	"deepseek-reasoner":                   0.25,
 	"deepseek-coder":                      0.25,

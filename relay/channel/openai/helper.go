@@ -129,6 +129,9 @@ func handleLastResponse(lastStreamData string, responseId *string, createAt *int
 	*createAt = lastStreamResponse.Created
 	*systemFingerprint = lastStreamResponse.GetSystemFingerprint()
 	*model = lastStreamResponse.Model
+	if err := helper.ApplyActualBillingServiceTier(info, lastStreamResponse.ServiceTier); err != nil {
+		return err
+	}
 
 	if service.ValidUsage(lastStreamResponse.Usage) {
 		*containStreamUsage = true
