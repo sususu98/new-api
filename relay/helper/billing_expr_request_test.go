@@ -61,3 +61,18 @@ func TestBuildBillingExprRequestInputFromRequest(t *testing.T) {
 	require.Equal(t, "user", gjson.GetBytes(input.Body, "messages.0.role").String())
 	require.Equal(t, float64(3000), gjson.GetBytes(input.Body, "max_tokens").Float())
 }
+
+func TestApplyActualBillingServiceTier(t *testing.T) {
+	info := &relaycommon.RelayInfo{}
+	err := ApplyActualBillingServiceTier(info, "priority")
+	require.NoError(t, err)
+	require.False(t, gjson.GetBytes(info.BillingRequestInput.Body, "service_tier").Exists())
+	require.Equal(t, "priority", gjson.GetBytes(info.BillingRequestInput.Body, "_newapi_actual_service_tier").String())
+
+	info.BillingRequestInput.Body = []byte(`{"service_tier":"priority","model":"gpt-5.5"}`)
+	err = ApplyActualBillingServiceTier(info, "default")
+	require.NoError(t, err)
+	require.Equal(t, "priority", gjson.GetBytes(info.BillingRequestInput.Body, "service_tier").String())
+	require.Equal(t, "default", gjson.GetBytes(info.BillingRequestInput.Body, "_newapi_actual_service_tier").String())
+	require.Equal(t, "gpt-5.5", gjson.GetBytes(info.BillingRequestInput.Body, "model").String())
+}

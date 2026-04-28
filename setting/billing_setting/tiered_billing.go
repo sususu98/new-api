@@ -15,6 +15,21 @@ const (
 	BillingExprField      = "billing_expr"
 )
 
+const GPT55StandardBillingExpr = `len <= 272000 ? tier("standard", p * 5 + c * 30 + cr * 0.5) : tier("long_context", p * 10 + c * 45 + cr * 1)`
+const GPT55PriorityBillingExpr = `len <= 272000 ? tier("priority", p * 10 + c * 60 + cr * 1) : tier("priority_long_context", p * 20 + c * 90 + cr * 2)`
+const GPT55FlexBillingExpr = `len <= 272000 ? tier("flex", p * 2.5 + c * 15 + cr * 0.25) : tier("flex_long_context", p * 5 + c * 22.5 + cr * 0.5)`
+const GPT55BillingExpr = `param("_newapi_actual_service_tier") == "priority" ? (` + GPT55PriorityBillingExpr + `) : param("_newapi_actual_service_tier") == "flex" ? (` + GPT55FlexBillingExpr + `) : (` + GPT55StandardBillingExpr + `)`
+
+var defaultBillingMode = map[string]string{
+	"gpt-5.5":            BillingModeTieredExpr,
+	"gpt-5.5-2026-04-23": BillingModeTieredExpr,
+}
+
+var defaultBillingExpr = map[string]string{
+	"gpt-5.5":            GPT55BillingExpr,
+	"gpt-5.5-2026-04-23": GPT55BillingExpr,
+}
+
 // BillingSetting is managed by config.GlobalConfig.Register.
 // DB keys: billing_setting.billing_mode, billing_setting.billing_expr
 type BillingSetting struct {
@@ -39,20 +54,26 @@ func GetBillingMode(model string) string {
 	if mode, ok := billingSetting.BillingMode[model]; ok {
 		return mode
 	}
+	if mode, ok := defaultBillingMode[model]; ok {
+		return mode
+	}
 	return BillingModeRatio
 }
 
 func GetBillingExpr(model string) (string, bool) {
-	expr, ok := billingSetting.BillingExpr[model]
+	if expr, ok := billingSetting.BillingExpr[model]; ok {
+		return expr, ok
+	}
+	expr, ok := defaultBillingExpr[model]
 	return expr, ok
 }
 
 func GetBillingModeCopy() map[string]string {
-	return lo.Assign(billingSetting.BillingMode)
+	return lo.Assign(defaultBillingMode, billingSetting.BillingMode)
 }
 
 func GetBillingExprCopy() map[string]string {
-	return lo.Assign(billingSetting.BillingExpr)
+	return lo.Assign(defaultBillingExpr, billingSetting.BillingExpr)
 }
 
 func GetPricingSyncData(base map[string]any) map[string]any {

@@ -10,6 +10,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	billingExprActualServiceTierField = "_newapi_actual_service_tier"
+)
+
 func ResolveIncomingBillingExprRequestInput(c *gin.Context, info *relaycommon.RelayInfo) (billingexpr.RequestInput, error) {
 	if info != nil && info.BillingRequestInput != nil {
 		input := cloneRequestInput(*info.BillingRequestInput)
@@ -48,6 +52,34 @@ func BuildBillingExprRequestInputFromRequest(request dto.Request, headers map[st
 	}
 	input.Body = bodyBytes
 	return input, nil
+}
+
+func ApplyActualBillingServiceTier(info *relaycommon.RelayInfo, serviceTier string) error {
+	serviceTier = strings.TrimSpace(serviceTier)
+	if info == nil || serviceTier == "" {
+		return nil
+	}
+	if info.BillingRequestInput == nil {
+		info.BillingRequestInput = &billingexpr.RequestInput{}
+	}
+
+	var body map[string]any
+	if len(info.BillingRequestInput.Body) > 0 {
+		if err := common.Unmarshal(info.BillingRequestInput.Body, &body); err != nil {
+			return err
+		}
+	}
+	if body == nil {
+		body = map[string]any{}
+	}
+	body[billingExprActualServiceTierField] = serviceTier
+
+	bodyBytes, err := common.Marshal(body)
+	if err != nil {
+		return err
+	}
+	info.BillingRequestInput.Body = bodyBytes
+	return nil
 }
 
 func readIncomingBillingExprBody(c *gin.Context) ([]byte, error) {
