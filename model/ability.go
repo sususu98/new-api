@@ -3,10 +3,13 @@ package model
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
+	"github.com/QuantumNous/new-api/setting/ratio_setting"
 
 	"github.com/samber/lo"
 	"gorm.io/gorm"
@@ -141,6 +144,106 @@ func GetChannel(group string, model string, retry int) (*Channel, error) {
 	}
 	err = DB.First(&channel, "id = ?", channel.Id).Error
 	return &channel, err
+}
+
+func GetChannelForEndpoint(group string, modelName string, retry int, endpointType constant.EndpointType) (*Channel, error) {
+	if endpointType == "" {
+		return GetChannel(group, modelName, retry)
+	}
+	channel, err := getChannelForEndpointDB(group, modelName, modelName, retry, endpointType)
+	if err != nil || channel != nil {
+		return channel, err
+	}
+	normalized := ratio_setting.FormatMatchingModelName(modelName)
+	if normalized == "" || normalized == modelName {
+		return nil, nil
+	}
+	return getChannelForEndpointDB(group, normalized, modelName, retry, endpointType)
+}
+
+func getChannelForEndpointDB(group string, abilityModel string, requestModel string, retry int, endpointType constant.EndpointType) (*Channel, error) {
+	var abilities []Ability
+	err := DB.Model(&Ability{}).
+		Where(commonGroupCol+" = ? and model = ? and enabled = ?", group, abilityModel, true).
+		Find(&abilities).Error
+	if err != nil {
+		return nil, err
+	}
+	if len(abilities) == 0 {
+		return nil, nil
+	}
+
+	channelByID := make(map[int]*Channel)
+	filtered := make([]Ability, 0, len(abilities))
+	for _, ability := range abilities {
+		channel, ok := channelByID[ability.ChannelId]
+		if !ok {
+			channel = &Channel{}
+			if err := DB.First(channel, "id = ?", ability.ChannelId).Error; err != nil {
+				return nil, err
+			}
+			channelByID[ability.ChannelId] = channel
+		}
+		if common.ChannelSupportsEndpointType(channel.Type, endpointType) {
+			filtered = append(filtered, ability)
+		}
+	}
+	return chooseChannelFromAbilities(filtered, channelByID, group, abilityModel, retry)
+}
+
+func chooseChannelFromAbilities(abilities []Ability, channelByID map[int]*Channel, group string, modelName string, retry int) (*Channel, error) {
+	if len(abilities) == 0 {
+		return nil, nil
+	}
+
+	uniquePriorities := make(map[int64]bool)
+	for _, ability := range abilities {
+		uniquePriorities[getAbilityPriority(ability)] = true
+	}
+	priorities := make([]int64, 0, len(uniquePriorities))
+	for priority := range uniquePriorities {
+		priorities = append(priorities, priority)
+	}
+	sort.Slice(priorities, func(i, j int) bool {
+		return priorities[i] > priorities[j]
+	})
+	if retry >= len(priorities) {
+		retry = len(priorities) - 1
+	}
+	targetPriority := priorities[retry]
+
+	targetAbilities := make([]Ability, 0, len(abilities))
+	weightSum := uint(0)
+	for _, ability := range abilities {
+		if getAbilityPriority(ability) != targetPriority {
+			continue
+		}
+		targetAbilities = append(targetAbilities, ability)
+		weightSum += ability.Weight + 10
+	}
+	if len(targetAbilities) == 0 {
+		return nil, fmt.Errorf("no channel found, group: %s, model: %s, priority: %d", group, modelName, targetPriority)
+	}
+
+	weight := common.GetRandomInt(int(weightSum))
+	for _, ability := range targetAbilities {
+		weight -= int(ability.Weight) + 10
+		if weight <= 0 {
+			channel, ok := channelByID[ability.ChannelId]
+			if !ok {
+				return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", ability.ChannelId)
+			}
+			return channel, nil
+		}
+	}
+	return nil, errors.New("channel not found")
+}
+
+func getAbilityPriority(ability Ability) int64 {
+	if ability.Priority == nil {
+		return 0
+	}
+	return *ability.Priority
 }
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {

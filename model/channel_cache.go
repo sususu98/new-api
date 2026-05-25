@@ -95,21 +95,33 @@ func SyncChannelCache(frequency int) {
 }
 
 func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel, error) {
+	return GetRandomSatisfiedChannelForEndpoint(group, model, retry, "")
+}
+
+func GetRandomSatisfiedChannelForEndpoint(group string, modelName string, retry int, endpointType constant.EndpointType) (*Channel, error) {
 	// if memory cache is disabled, get channel directly from database
 	if !common.MemoryCacheEnabled {
-		return GetChannel(group, model, retry)
+		return GetChannelForEndpoint(group, modelName, retry, endpointType)
 	}
 
 	channelSyncLock.RLock()
 	defer channelSyncLock.RUnlock()
 
 	// First, try to find channels with the exact model name.
-	channels := group2model2channels[group][model]
+	channels, err := getCompatibleChannelIDsLocked(group, modelName, modelName, endpointType)
+	if err != nil {
+		return nil, err
+	}
 
 	// If no channels found, try to find channels with the normalized model name.
 	if len(channels) == 0 {
-		normalizedModel := ratio_setting.FormatMatchingModelName(model)
-		channels = group2model2channels[group][normalizedModel]
+		normalizedModel := ratio_setting.FormatMatchingModelName(modelName)
+		if normalizedModel != "" && normalizedModel != modelName {
+			channels, err = getCompatibleChannelIDsLocked(group, normalizedModel, modelName, endpointType)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	if len(channels) == 0 {
@@ -157,7 +169,7 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	}
 
 	if len(targetChannels) == 0 {
-		return nil, errors.New(fmt.Sprintf("no channel found, group: %s, model: %s, priority: %d", group, model, targetPriority))
+		return nil, errors.New(fmt.Sprintf("no channel found, group: %s, model: %s, priority: %d", group, modelName, targetPriority))
 	}
 
 	// smoothing factor and adjustment
@@ -189,6 +201,24 @@ func GetRandomSatisfiedChannel(group string, model string, retry int) (*Channel,
 	}
 	// return null if no channel is not found
 	return nil, errors.New("channel not found")
+}
+
+func getCompatibleChannelIDsLocked(group string, abilityModel string, requestModel string, endpointType constant.EndpointType) ([]int, error) {
+	channelIDs := group2model2channels[group][abilityModel]
+	if endpointType == "" {
+		return channelIDs, nil
+	}
+	compatible := make([]int, 0, len(channelIDs))
+	for _, channelID := range channelIDs {
+		channel, ok := channelsIDM[channelID]
+		if !ok {
+			return nil, fmt.Errorf("数据库一致性错误，渠道# %d 不存在，请联系管理员修复", channelID)
+		}
+		if common.ChannelSupportsEndpointType(channel.Type, endpointType) {
+			compatible = append(compatible, channelID)
+		}
+	}
+	return compatible, nil
 }
 
 func CacheGetChannel(id int) (*Channel, error) {
