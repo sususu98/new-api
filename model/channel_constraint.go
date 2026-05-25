@@ -3,6 +3,7 @@ package model
 import (
 	"slices"
 
+	"github.com/QuantumNous/new-api/common"
 	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/dto"
 )
@@ -92,6 +93,10 @@ func channelMatchesFilter(ch *Channel, modelName string, filter dto.ChannelFilte
 	case dto.FilterRequestPath:
 		if filter.RequestPath == "" {
 			return true
+		}
+		if endpoint, required := common.GetRequiredEndpointTypeByRequestPath(filter.RequestPath); required &&
+			!common.ChannelSupportsEndpointType(ch.Type, endpoint) {
+			return false
 		}
 		if !constant.IsAdvancedCustomChannel(ch.Type) {
 			return true

@@ -1,6 +1,10 @@
 package common
 
-import "github.com/QuantumNous/new-api/constant"
+import (
+	"strings"
+
+	"github.com/QuantumNous/new-api/constant"
+)
 
 // GetEndpointTypesByChannelType 获取渠道最优先端点类型（所有的渠道都支持 OpenAI 端点）
 func GetEndpointTypesByChannelType(channelType int, modelName string) []constant.EndpointType {
@@ -59,4 +63,57 @@ func GetEndpointTypesByChannelType(channelType int, modelName string) []constant
 		endpointTypes = append([]constant.EndpointType{constant.EndpointTypeImageGeneration}, endpointTypes...)
 	}
 	return endpointTypes
+}
+
+// GetRequiredEndpointTypeByRequestPath identifies Responses endpoints without
+// restricting unrelated endpoints that may use cross-protocol conversion.
+func GetRequiredEndpointTypeByRequestPath(path string) (constant.EndpointType, bool) {
+	path, _, _ = strings.Cut(path, "?")
+	path = strings.TrimRight(path, "/")
+	switch {
+	case path == "/v1/responses/compact" || strings.HasPrefix(path, "/v1/responses/compact/"):
+		return constant.EndpointTypeOpenAIResponseCompact, true
+	case path == "/v1/responses" || strings.HasPrefix(path, "/v1/responses/"):
+		return constant.EndpointTypeOpenAIResponse, true
+	default:
+		return "", false
+	}
+}
+
+// ChannelSupportsEndpointType reports adaptor capability, not a channel's
+// configured routes. Advanced Custom and inference presets must also satisfy
+// their per-model request-path constraints.
+func ChannelSupportsEndpointType(channelType int, endpointType constant.EndpointType) bool {
+	if endpointType == "" {
+		return true
+	}
+	apiType, _ := ChannelType2APIType(channelType)
+	switch endpointType {
+	case constant.EndpointTypeOpenAIResponse:
+		// Keep aligned with GetAdaptor and ConvertOpenAIResponsesRequest,
+		// including adaptors that convert Responses to another protocol.
+		switch apiType {
+		case constant.APITypeOpenAI,
+			constant.APITypeAnthropic,
+			constant.APITypeGemini,
+			constant.APITypeDeepSeek,
+			constant.APITypeCodex,
+			constant.APITypeXai,
+			constant.APITypeAli,
+			constant.APITypeCloudflare,
+			constant.APITypeVolcEngine,
+			constant.APITypePerplexity,
+			constant.APITypeOllama,
+			constant.APITypeOpenRouter,
+			constant.APITypeXinference,
+			constant.APITypeZhipuV4,
+			constant.APITypeAdvancedCustom,
+			constant.APITypeSub2API,
+			constant.APITypeNewAPI:
+			return true
+		}
+	case constant.EndpointTypeOpenAIResponseCompact:
+		return SupportsResponsesCompact(channelType, apiType)
+	}
+	return false
 }
