@@ -13,6 +13,7 @@ web/classic/dist
 web/node_modules
 web/dist
 .env
+docker-compose.override.yml
 one-api
 new-api
 /__debug_bin*
