@@ -14,6 +14,7 @@ logs
 web/dist
 web/node_modules
 .env
+docker-compose.override.yml
 one-api
 new-api
 /__debug_bin*
