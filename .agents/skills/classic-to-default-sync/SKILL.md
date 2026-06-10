@@ -1,6 +1,15 @@
 ---
 name: classic-to-default-sync
-description: Inspect a given commit's web/classic changes and sync all features/fixes to web/default. Use when the user provides a commit ID and wants to audit whether web/default already has the same features as web/classic, port missing features, improve suboptimal implementations, fix bugs, and remove redundant code. Trigger phrases include: "/classic-to-default-sync <hash>", "classic-to-default-sync <hash>", "sync classic to default", "port from classic", "compare classic commit", "classic 和 default 对比", "把这次 classic 的修改同步到 default", "查看这次提交 classic 中的修改并同步", or any request supplying a commit hash together with classic/default comparison intent.
+description: >-
+  Inspect a given commit's web/classic changes and sync all features/fixes to
+  web/default. Use when the user provides a commit ID and wants to audit whether
+  web/default already has the same features as web/classic, port missing
+  features, improve suboptimal implementations, fix bugs, and remove redundant
+  code. Trigger phrases include "/classic-to-default-sync commit hash",
+  "classic-to-default-sync commit hash", "sync classic to default", "port from
+  classic", "compare classic commit", "classic 和 default 对比", "把这次
+  classic 的修改同步到 default", "查看这次提交 classic 中的修改并同步", or any request
+  supplying a commit hash together with classic/default comparison intent.
 ---
 
 # Classic-to-Default Sync
@@ -33,11 +42,11 @@ For each logical change found in Step 1, locate the equivalent file(s) in `web/d
 
 Classify every logical change as one of:
 
-| Status | Meaning |
-|--------|---------|
-| ✅ Already present & optimal | No action needed |
-| ⚠️ Present but suboptimal | Improve: logic, layout, style, or code quality |
-| ❌ Missing | Implement from scratch in default's stack |
+| Status                       | Meaning                                        |
+| ---------------------------- | ---------------------------------------------- |
+| ✅ Already present & optimal | No action needed                               |
+| ⚠️ Present but suboptimal    | Improve: logic, layout, style, or code quality |
+| ❌ Missing                   | Implement from scratch in default's stack      |
 
 ### Step 4 — Implement
 
@@ -68,9 +77,9 @@ Then add missing translations for all supported locales (en, zh, fr, ja, ru, vi)
 
 Summarise the work in a concise table:
 
-| # | Change (from classic commit) | Status | Action taken |
-|---|------------------------------|--------|--------------|
-| 1 | … | ✅ / ⚠️ / ❌ | None / Improved / Implemented |
+| #   | Change (from classic commit) | Status       | Action taken                  |
+| --- | ---------------------------- | ------------ | ----------------------------- |
+| 1   | …                            | ✅ / ⚠️ / ❌ | None / Improved / Implemented |
 
 If every item is ✅ with no action needed, simply reply: **"已完成 — web/default 已具备此次提交的所有功能，且实现质量良好，无需修改。"**
 
