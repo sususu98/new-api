@@ -169,7 +169,7 @@ func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp
 	}
 
 	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
-		usage.PromptTokens = info.GetEstimatePromptTokens()
+		usage.PromptTokens = service.ClampLocalBillingPromptTokens(info.GetEstimatePromptTokens())
 	}
 
 	usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens

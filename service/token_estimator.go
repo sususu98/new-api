@@ -19,13 +19,13 @@ const (
 
 // multipliers 定义不同厂商的计费权重
 type multipliers struct {
-	Word       float64 // 英文单词 (每词)
-	Number     float64 // 数字 (每连续数字串)
+	Word       float64 // 英文单词 / 字母数字块
+	Number     float64 // 纯数字块（当前与 Word 共用 BPE 块逻辑，保留字段兼容）
 	CJK        float64 // 中日韩字符 (每字)
-	Symbol     float64 // 普通标点符号 (每个)
+	Symbol     float64 // 普通标点符号
 	MathSymbol float64 // 数学符号 (∑,∫,∂,√等，每个)
-	URLDelim   float64 // URL分隔符 (/,:,?,&,=,#,%) - tokenizer优化好
-	AtSign     float64 // @符号 - 导致单词切分，消耗较高
+	URLDelim   float64 // URL分隔符 (/,:,?,&,=,#,%)
+	AtSign     float64 // @符号
 	Emoji      float64 // Emoji表情 (每个)
 	Newline    float64 // 换行符/制表符 (每个)
 	Space      float64 // 空格 (每个)
@@ -60,91 +60,165 @@ func getMultipliers(p Provider) multipliers {
 	case OpenAI:
 		return multipliersMap[OpenAI]
 	default:
-		// 默认兜底 (按 OpenAI 的算)
 		return multipliersMap[OpenAI]
 	}
 }
 
-// EstimateToken 计算 Token 数量
+// charsPerToken is the BPE-like average for continuous alphanumeric / dense symbol runs.
+// Real tokenizers sit near 4 chars/token for English, identifiers, base64 and JSON punctuation.
+const charsPerToken = 4.0
+
+// maxTokensPerRune is a physical upper bound for heuristic estimates.
+// CJK-heavy text is ~1–1.5 tokens/rune; 2× is a safe ceiling against runaway counts.
+const maxTokensPerRune = 2.0
+
+// MaxLocalBillingPromptTokens caps heuristic prompt tokens used when settling
+// without upstream usage (client_gone / incomplete stream). Upstream-reported
+// usage is never clamped by this constant.
+const MaxLocalBillingPromptTokens = 256_000
+
+// EstimateToken estimates token count with a lightweight heuristic.
+//
+// Design goals:
+//   - Stay close to real BPE behavior for normal text
+//   - Avoid pathological over-count on base64 / letter↔digit thrashing / dense JSON
+//   - Bound results by text length so multi-million estimates cannot appear from
+//     medium-size agent tool dumps (those feed pre-consume and client_gone settlement)
 func EstimateToken(provider Provider, text string) int {
+	if text == "" {
+		return 0
+	}
+
 	m := getMultipliers(provider)
 	var count float64
+	var alnumRun int
+	var symbolRunWeight float64
+	var symbolRunLen int
+	runeCount := 0
 
-	// 状态机变量
-	type WordType int
-	const (
-		None WordType = iota
-		Latin
-		Number
-	)
-	currentWordType := None
+	flushAlnum := func() {
+		if alnumRun <= 0 {
+			return
+		}
+		// Continuous alphanumerics share one BPE budget. Do NOT restart on
+		// letter↔digit switches — that was the main multi-million over-count path
+		// for base64 and minified tool output.
+		chunks := math.Ceil(float64(alnumRun) / charsPerToken)
+		count += chunks * m.Word
+		alnumRun = 0
+	}
+
+	flushSymbols := func() {
+		if symbolRunLen <= 0 {
+			return
+		}
+		// Dense punctuation (JSON braces/quotes/colons, URL query strings) is not
+		// one full token per character. First symbol pays full weight; remainder
+		// compresses like BPE (~4 chars/token).
+		avg := symbolRunWeight / float64(symbolRunLen)
+		count += avg
+		if symbolRunLen > 1 {
+			count += math.Ceil(float64(symbolRunLen-1)/charsPerToken) * avg
+		}
+		symbolRunLen = 0
+		symbolRunWeight = 0
+	}
+
+	pushSymbol := func(weight float64) {
+		flushAlnum()
+		symbolRunLen++
+		symbolRunWeight += weight
+	}
 
 	for _, r := range text {
-		// 1. 处理空格和换行符
+		runeCount++
+
 		if unicode.IsSpace(r) {
-			currentWordType = None
-			// 换行符和制表符使用Newline权重
+			flushAlnum()
+			flushSymbols()
 			if r == '\n' || r == '\t' {
 				count += m.Newline
 			} else {
-				// 普通空格使用Space权重
 				count += m.Space
 			}
 			continue
 		}
 
-		// 2. 处理 CJK (中日韩) - 按字符计费
 		if isCJK(r) {
-			currentWordType = None
+			flushAlnum()
+			flushSymbols()
 			count += m.CJK
 			continue
 		}
 
-		// 3. 处理Emoji - 使用专门的Emoji权重
 		if isEmoji(r) {
-			currentWordType = None
+			flushAlnum()
+			flushSymbols()
 			count += m.Emoji
 			continue
 		}
 
-		// 4. 处理拉丁字母/数字 (英文单词)
 		if isLatinOrNumber(r) {
-			isNum := unicode.IsNumber(r)
-			newType := Latin
-			if isNum {
-				newType = Number
-			}
-
-			// 如果之前不在单词中，或者类型发生变化（字母<->数字），则视为新token
-			// 注意：对于OpenAI，通常"version 3.5"会切分，"abc123xyz"有时也会切分
-			// 这里简单起见，字母和数字切换时增加权重
-			if currentWordType == None || currentWordType != newType {
-				if newType == Number {
-					count += m.Number
-				} else {
-					count += m.Word
-				}
-				currentWordType = newType
-			}
-			// 单词中间的字符不额外计费
+			flushSymbols()
+			alnumRun++
 			continue
 		}
 
-		// 5. 处理标点符号/特殊字符 - 按类型使用不同权重
-		currentWordType = None
+		// Symbols / punctuation
 		if isMathSymbol(r) {
+			flushAlnum()
+			flushSymbols()
+			// Math symbols are rare and genuinely expensive in some tokenizers.
 			count += m.MathSymbol
-		} else if r == '@' {
-			count += m.AtSign
-		} else if isURLDelim(r) {
-			count += m.URLDelim
-		} else {
-			count += m.Symbol
+			continue
 		}
+		if r == '@' {
+			flushAlnum()
+			flushSymbols()
+			count += m.AtSign
+			continue
+		}
+		if isURLDelim(r) {
+			pushSymbol(m.URLDelim)
+			continue
+		}
+		pushSymbol(m.Symbol)
 	}
 
-	// 向上取整并加上基础 padding
-	return int(math.Ceil(count)) + m.BasePad
+	flushAlnum()
+	flushSymbols()
+
+	result := int(math.Ceil(count)) + m.BasePad
+	return clampHeuristicTokenCount(result, runeCount)
+}
+
+// clampHeuristicTokenCount bounds a heuristic estimate by text length.
+func clampHeuristicTokenCount(count int, runeCount int) int {
+	if count < 0 {
+		return 0
+	}
+	if runeCount <= 0 {
+		return count
+	}
+	maxByRunes := int(math.Ceil(float64(runeCount) * maxTokensPerRune))
+	if maxByRunes < runeCount {
+		maxByRunes = runeCount
+	}
+	if count > maxByRunes {
+		return maxByRunes
+	}
+	return count
+}
+
+// ClampLocalBillingPromptTokens bounds local-only prompt estimates for settlement.
+func ClampLocalBillingPromptTokens(estimated int) int {
+	if estimated < 0 {
+		return 0
+	}
+	if estimated > MaxLocalBillingPromptTokens {
+		return MaxLocalBillingPromptTokens
+	}
+	return estimated
 }
 
 // 辅助：判断是否为 CJK 字符
@@ -161,60 +235,45 @@ func isLatinOrNumber(r rune) bool {
 
 // 辅助：判断是否为Emoji字符
 func isEmoji(r rune) bool {
-	// Emoji的Unicode范围
-	// 基本范围：0x1F300-0x1F9FF (Emoticons, Symbols, Pictographs)
-	// 补充范围：0x2600-0x26FF (Misc Symbols), 0x2700-0x27BF (Dingbats)
-	// 表情符号：0x1F600-0x1F64F (Emoticons)
-	// 其他：0x1F900-0x1F9FF (Supplemental Symbols and Pictographs)
 	return (r >= 0x1F300 && r <= 0x1F9FF) ||
 		(r >= 0x2600 && r <= 0x26FF) ||
 		(r >= 0x2700 && r <= 0x27BF) ||
 		(r >= 0x1F600 && r <= 0x1F64F) ||
 		(r >= 0x1F900 && r <= 0x1F9FF) ||
-		(r >= 0x1FA00 && r <= 0x1FAFF) // Symbols and Pictographs Extended-A
+		(r >= 0x1FA00 && r <= 0x1FAFF)
 }
 
 // 辅助：判断是否为数学符号
 func isMathSymbol(r rune) bool {
-	// 数学运算符和符号
-	// 基本数学符号：∑ ∫ ∂ √ ∞ ≤ ≥ ≠ ≈ ± × ÷
-	// 上下标数字：² ³ ¹ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ⁰
-	// 希腊字母等也常用于数学
 	mathSymbols := "∑∫∂√∞≤≥≠≈±×÷∈∉∋∌⊂⊃⊆⊇∪∩∧∨¬∀∃∄∅∆∇∝∟∠∡∢°′″‴⁺⁻⁼⁽⁾ⁿ₀₁₂₃₄₅₆₇₈₉₊₋₌₍₎²³¹⁴⁵⁶⁷⁸⁹⁰"
 	for _, m := range mathSymbols {
 		if r == m {
 			return true
 		}
 	}
-	// Mathematical Operators (U+2200–U+22FF)
 	if r >= 0x2200 && r <= 0x22FF {
 		return true
 	}
-	// Supplemental Mathematical Operators (U+2A00–U+2AFF)
 	if r >= 0x2A00 && r <= 0x2AFF {
 		return true
 	}
-	// Mathematical Alphanumeric Symbols (U+1D400–U+1D7FF)
 	if r >= 0x1D400 && r <= 0x1D7FF {
 		return true
 	}
 	return false
 }
 
-// 辅助：判断是否为URL分隔符（tokenizer对这些优化较好）
+// 辅助：判断是否为URL分隔符
 func isURLDelim(r rune) bool {
-	// URL中常见的分隔符，tokenizer通常优化处理
-	urlDelims := "/:?&=;#%"
-	for _, d := range urlDelims {
-		if r == d {
-			return true
-		}
+	switch r {
+	case '/', ':', '?', '&', '=', '#', '%':
+		return true
+	default:
+		return false
 	}
-	return false
 }
 
 func EstimateTokenByModel(model, text string) int {
-	// strings.Contains(model, "gpt-4o")
 	if text == "" {
 		return 0
 	}
@@ -222,9 +281,10 @@ func EstimateTokenByModel(model, text string) int {
 	model = strings.ToLower(model)
 	if strings.Contains(model, "gemini") {
 		return EstimateToken(Gemini, text)
-	} else if strings.Contains(model, "claude") {
-		return EstimateToken(Claude, text)
-	} else {
-		return EstimateToken(OpenAI, text)
 	}
+	if strings.Contains(model, "claude") {
+		return EstimateToken(Claude, text)
+	}
+	// glm / deepseek / qwen / etc. share the OpenAI-weight heuristic
+	return EstimateToken(OpenAI, text)
 }

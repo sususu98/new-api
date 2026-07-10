@@ -280,10 +280,11 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 				completionTokens += ctkm
 			}
 		}
+		estPrompt := service.ClampLocalBillingPromptTokens(info.GetEstimatePromptTokens())
 		simpleResponse.Usage = dto.Usage{
-			PromptTokens:     info.GetEstimatePromptTokens(),
+			PromptTokens:     estPrompt,
 			CompletionTokens: completionTokens,
-			TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
+			TotalTokens:      estPrompt + completionTokens,
 		}
 		usageModified = true
 	}

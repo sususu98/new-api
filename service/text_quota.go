@@ -247,10 +247,13 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.IsClaudeUsageSemantic = summary.UsageSemantic == "anthropic"
 
 	if usage == nil {
+		// No upstream usage: fall back to local estimate, but never bill an
+		// unbounded multi-million heuristic (client_gone / empty body paths).
+		est := ClampLocalBillingPromptTokens(relayInfo.GetEstimatePromptTokens())
 		usage = &dto.Usage{
-			PromptTokens:     relayInfo.GetEstimatePromptTokens(),
+			PromptTokens:     est,
 			CompletionTokens: 0,
-			TotalTokens:      relayInfo.GetEstimatePromptTokens(),
+			TotalTokens:      est,
 		}
 	}
 

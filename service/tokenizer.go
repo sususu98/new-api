@@ -19,11 +19,27 @@ var tokenEncoderMutex sync.RWMutex
 
 func InitTokenEncoders() {
 	common.SysLog("initializing token encoders")
-	defaultTokenEncoder = codec.NewCl100kBase()
+	ensureDefaultTokenEncoder()
 	common.SysLog("token encoders initialized")
 }
 
+func ensureDefaultTokenEncoder() tokenizer.Codec {
+	if defaultTokenEncoder != nil {
+		return defaultTokenEncoder
+	}
+	tokenEncoderMutex.Lock()
+	defer tokenEncoderMutex.Unlock()
+	if defaultTokenEncoder == nil {
+		// cl100k_base is a solid general-purpose proxy for non-OpenAI models
+		// (glm/claude/gemini/...) when their native tokenizer is unavailable.
+		defaultTokenEncoder = codec.NewCl100kBase()
+	}
+	return defaultTokenEncoder
+}
+
 func getTokenEncoder(model string) tokenizer.Codec {
+	ensureDefaultTokenEncoder()
+
 	// First, try to get the encoder from cache with read lock
 	tokenEncoderMutex.RLock()
 	if encoder, exists := tokenEncoderMap[model]; exists {
@@ -41,15 +57,14 @@ func getTokenEncoder(model string) tokenizer.Codec {
 		return encoder
 	}
 
-	// Create new encoder
+	// Create new encoder for known OpenAI-family model names when possible.
 	modelCodec, err := tokenizer.ForModel(tokenizer.Model(model))
 	if err != nil {
-		// Cache the default encoder for this model to avoid repeated failures
+		// glm/claude/gemini/etc. have no codec in tiktoken-go; use cl100k_base.
 		tokenEncoderMap[model] = defaultTokenEncoder
 		return defaultTokenEncoder
 	}
 
-	// Cache the new encoder
 	tokenEncoderMap[model] = modelCodec
 	return modelCodec
 }
@@ -58,6 +73,12 @@ func getTokenNum(tokenEncoder tokenizer.Codec, text string) int {
 	if text == "" {
 		return 0
 	}
-	tkm, _ := tokenEncoder.Count(text)
+	if tokenEncoder == nil {
+		tokenEncoder = ensureDefaultTokenEncoder()
+	}
+	tkm, err := tokenEncoder.Count(text)
+	if err != nil {
+		return EstimateTokenByModel("", text)
+	}
 	return tkm
 }
