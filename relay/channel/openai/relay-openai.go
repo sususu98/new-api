@@ -311,10 +311,11 @@ func OpenaiHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Respo
 				completionTokens += ctkm
 			}
 		}
+		estPrompt := service.ClampLocalBillingPromptTokens(info.GetEstimatePromptTokens())
 		fallbackUsage := &dto.Usage{
-			PromptTokens:     info.GetEstimatePromptTokens(),
+			PromptTokens:     estPrompt,
 			CompletionTokens: completionTokens,
-			TotalTokens:      info.GetEstimatePromptTokens() + completionTokens,
+			TotalTokens:      estPrompt + completionTokens,
 		}
 		simpleResponse.Usage = *fallbackUsage
 		usageModified = true

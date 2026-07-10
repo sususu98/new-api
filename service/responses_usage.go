@@ -101,7 +101,7 @@ func (a *ResponsesUsageAccumulator) Finish() *dto.Usage {
 	// upstream reported an explicit failure.
 	billsPrompt := a.usage.CompletionTokens != 0 || (a.started && !a.info.StreamStatus.ResponseFailed())
 	if a.usage.PromptTokens == 0 && billsPrompt {
-		a.usage.PromptTokens = a.info.GetEstimatePromptTokens()
+		a.usage.PromptTokens = ClampLocalBillingPromptTokens(a.info.GetEstimatePromptTokens())
 	}
 	a.usage.TotalTokens = a.usage.PromptTokens + a.usage.CompletionTokens
 	if a.usage.BillingUsage != nil {

@@ -260,6 +260,7 @@ func TestResponsesUsageAccumulatorMissingUsageEstimation(t *testing.T) {
 	for _, tc := range []struct {
 		name           string
 		events         []dto.ResponsesStreamResponse
+		estimatePrompt int
 		wantPrompt     int
 		wantCompletion int
 	}{
@@ -321,13 +322,37 @@ func TestResponsesUsageAccumulatorMissingUsageEstimation(t *testing.T) {
 		{
 			name: "no upstream events bills nothing",
 		},
+		{
+			name: "disconnect caps oversized local prompt estimate",
+			events: []dto.ResponsesStreamResponse{
+				{Type: "response.created", Response: inProgress},
+			},
+			estimatePrompt: 5_557_795,
+			wantPrompt:     256_000,
+		},
+		{
+			name: "reported upstream prompt usage is not capped",
+			events: []dto.ResponsesStreamResponse{
+				{Type: "response.completed", Response: &dto.OpenAIResponsesResponse{
+					Status: []byte(`"completed"`),
+					Usage:  &dto.Usage{InputTokens: 300_000, OutputTokens: 1, TotalTokens: 300_001},
+				}},
+			},
+			estimatePrompt: 5_557_795,
+			wantPrompt:     300_000,
+			wantCompletion: 1,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			info := &relaycommon.RelayInfo{
 				ChannelMeta:  &relaycommon.ChannelMeta{UpstreamModelName: model},
 				StreamStatus: relaycommon.NewStreamStatus(),
 			}
-			info.SetEstimatePromptTokens(100)
+			estimate := tc.estimatePrompt
+			if estimate == 0 {
+				estimate = 100
+			}
+			info.SetEstimatePromptTokens(estimate)
 			accumulator := NewResponsesUsageAccumulator(info)
 			for i := range tc.events {
 				accumulator.Observe(&tc.events[i])

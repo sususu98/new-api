@@ -401,16 +401,17 @@ func CountAudioTokenOutput(audioBase64 string, audioFormat string) (int, error) 
 	return common.QuotaFromFloat(duration / 60 * 200 / 0.24), nil
 }
 
-// CountTextToken 统计文本的token数量，仅OpenAI模型使用tokenizer，其余模型使用估算
+// CountTextToken counts text tokens with tiktoken-go.
+// OpenAI-named models use the model-matched encoder when available; all other
+// models (glm/claude/gemini/...) fall back to the default cl100k_base codec.
+// Heuristic EstimateToken is only a last resort if the encoder path panics/fails.
 func CountTextToken(text string, model string) int {
 	if text == "" {
 		return 0
 	}
-	if common.IsOpenAITextModel(model) {
-		tokenEncoder := getTokenEncoder(model)
+	tokenEncoder := getTokenEncoder(model)
+	if tokenEncoder != nil {
 		return getTokenNum(tokenEncoder, text)
-	} else {
-		// 非openai模型，使用tiktoken-go计算没有意义，使用估算节省资源
-		return EstimateTokenByModel(model, text)
 	}
+	return EstimateTokenByModel(model, text)
 }
