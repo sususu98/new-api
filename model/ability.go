@@ -295,7 +295,6 @@ func getAbilityPriority(ability Ability) int64 {
 	}
 	return *ability.Priority
 }
-}
 
 func (channel *Channel) AddAbilities(tx *gorm.DB) error {
 	models_ := strings.Split(channel.Models, ",")
