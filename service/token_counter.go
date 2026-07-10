@@ -268,3 +268,16 @@ func CountAudioTokenOutput(audioBase64 string, audioFormat string) (int, error) 
 	// duration 来自上游返回的音频元数据，饱和转换防止 int 回绕
 	return common.QuotaFromFloat(duration / 60 * 200 / 0.24), nil
 }
+
+// MaxLocalBillingPromptTokens caps locally estimated prompt tokens used when
+// settling without upstream usage (client_gone / incomplete stream).
+// Upstream-reported usage is never clamped by this constant.
+const MaxLocalBillingPromptTokens = 256_000
+
+// ClampLocalBillingPromptTokens bounds local-only prompt estimates for settlement.
+func ClampLocalBillingPromptTokens(estimated int) int {
+	if estimated < 0 {
+		return 0
+	}
+	return min(estimated, MaxLocalBillingPromptTokens)
+}
