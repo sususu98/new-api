@@ -7,14 +7,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/QuantumNous/new-api/common"
+	"github.com/QuantumNous/new-api/constant"
 	"github.com/QuantumNous/new-api/model"
 	"github.com/QuantumNous/new-api/service"
 	"github.com/gin-gonic/gin"
-	"github.com/glebarez/sqlite"
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,18 +28,24 @@ func setupDashboardAuthMiddlewareTest(t *testing.T) {
 	previousType := common.MainDatabaseType()
 	previousRedis := common.RedisEnabled
 	previousSecret := common.SessionSecret
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&model.User{}, &model.UserSession{}))
-	model.DB = db
-	common.SetMainDatabaseType(common.DatabaseTypeSQLite)
+	previousSQLitePath := common.SQLitePath
+
+	common.IsMasterNode = false
 	common.RedisEnabled = false
+	common.SQLitePath = fmt.Sprintf("file:%s?mode=memory&cache=shared", strings.ReplaceAll(t.Name(), "/", "_"))
+	common.SetDatabaseTypes(common.DatabaseTypeSQLite, common.DatabaseTypeSQLite)
+	require.NoError(t, model.InitDB())
+	require.NoError(t, model.DB.AutoMigrate(&model.User{}, &model.UserSession{}))
 	common.SessionSecret = "middleware-auth-test-secret"
 	t.Cleanup(func() {
+		if sqlDB, err := model.DB.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
 		model.DB = previousDB
 		common.SetMainDatabaseType(previousType)
 		common.RedisEnabled = previousRedis
 		common.SessionSecret = previousSecret
+		common.SQLitePath = previousSQLitePath
 	})
 }
 
@@ -249,3 +256,63 @@ func TestTryUserAuthCredentialClassification(t *testing.T) {
 	assert.Equal(t, http.StatusInternalServerError, databaseFailureResponse.Code)
 	assert.Contains(t, databaseFailureResponse.Body.String(), "AUTH_INTERNAL_ERROR")
 }
+
+func TestTokenAuthAutoGroupValidation(t *testing.T) {
+	setupDashboardAuthMiddlewareTest(t)
+	require.NoError(t, model.DB.AutoMigrate(&model.Token{}))
+
+	user := createMiddlewarePATUser(t, "auto-group-user", "user-access-token")
+	user.Group = "default"
+	require.NoError(t, model.DB.Save(user).Error)
+
+	autoToken := &model.Token{
+		UserId:         user.Id,
+		Key:            "autogrouptokenkey12345",
+		Status:         common.TokenStatusEnabled,
+		UnlimitedQuota: true,
+		Group:          "auto",
+	}
+	require.NoError(t, model.DB.Create(autoToken).Error)
+
+	forbiddenToken := &model.Token{
+		UserId:         user.Id,
+		Key:            "forbiddengrouptokenkey12345",
+		Status:         common.TokenStatusEnabled,
+		UnlimitedQuota: true,
+		Group:          "non-existent-group",
+	}
+	require.NoError(t, model.DB.Create(forbiddenToken).Error)
+
+	router := gin.New()
+	router.GET("/v1/models", TokenAuth(), func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"group":       common.GetContextKeyString(c, constant.ContextKeyUsingGroup),
+			"token_group": common.GetContextKeyString(c, constant.ContextKeyTokenGroup),
+		})
+	})
+
+	// 1. Auto group token should succeed and set context group to "auto"
+	reqAuto := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	reqAuto.Header.Set("Authorization", "Bearer sk-autogrouptokenkey12345")
+	respAuto := httptest.NewRecorder()
+	router.ServeHTTP(respAuto, reqAuto)
+
+	assert.Equal(t, http.StatusOK, respAuto.Code)
+	var autoBody struct {
+		Group      string `json:"group"`
+		TokenGroup string `json:"token_group"`
+	}
+	require.NoError(t, common.Unmarshal(respAuto.Body.Bytes(), &autoBody))
+	assert.Equal(t, "auto", autoBody.Group)
+	assert.Equal(t, "auto", autoBody.TokenGroup)
+
+	// 2. Forbidden group token should return 403
+	reqForbidden := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	reqForbidden.Header.Set("Authorization", "Bearer sk-forbiddengrouptokenkey12345")
+	respForbidden := httptest.NewRecorder()
+	router.ServeHTTP(respForbidden, reqForbidden)
+
+	assert.Equal(t, http.StatusForbidden, respForbidden.Code)
+	assert.Contains(t, respForbidden.Body.String(), "无权访问 non-existent-group 分组")
+}
+
