@@ -48,6 +48,9 @@ func TestChannelSupportsEndpointTypeResponses(t *testing.T) {
 	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeAzure, constant.EndpointTypeOpenAIResponse))
 	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeCodex, constant.EndpointTypeOpenAIResponse))
 	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeXai, constant.EndpointTypeOpenAIResponse))
+	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeSub2API, constant.EndpointTypeOpenAIResponse))
+	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeNewAPI, constant.EndpointTypeOpenAIResponse))
+	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeAdvancedCustom, constant.EndpointTypeOpenAIResponse))
 
 	require.False(t, ChannelSupportsEndpointType(constant.ChannelTypeAnthropic, constant.EndpointTypeOpenAIResponse))
 	require.False(t, ChannelSupportsEndpointType(constant.ChannelTypeAws, constant.EndpointTypeOpenAIResponse))
@@ -59,6 +62,9 @@ func TestChannelSupportsEndpointTypeResponsesCompact(t *testing.T) {
 	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeOpenAI, constant.EndpointTypeOpenAIResponseCompact))
 	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeAzure, constant.EndpointTypeOpenAIResponseCompact))
 	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeCodex, constant.EndpointTypeOpenAIResponseCompact))
+	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeSub2API, constant.EndpointTypeOpenAIResponseCompact))
+	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeNewAPI, constant.EndpointTypeOpenAIResponseCompact))
+	require.True(t, ChannelSupportsEndpointType(constant.ChannelTypeAdvancedCustom, constant.EndpointTypeOpenAIResponseCompact))
 
 	require.False(t, ChannelSupportsEndpointType(constant.ChannelTypeXai, constant.EndpointTypeOpenAIResponseCompact))
 	require.False(t, ChannelSupportsEndpointType(constant.ChannelTypeAnthropic, constant.EndpointTypeOpenAIResponseCompact))

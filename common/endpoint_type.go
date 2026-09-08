@@ -100,14 +100,20 @@ func ChannelSupportsEndpointType(channelType int, endpointType constant.Endpoint
 			constant.ChannelTypeAli,
 			constant.ChannelCloudflare,
 			constant.ChannelTypeVolcEngine,
-			constant.ChannelTypePerplexity:
+			constant.ChannelTypePerplexity,
+			constant.ChannelTypeSub2API,
+			constant.ChannelTypeNewAPI,
+			constant.ChannelTypeAdvancedCustom:
 			return true
 		}
 	case constant.EndpointTypeOpenAIResponseCompact:
 		switch channelType {
 		case constant.ChannelTypeOpenAI,
 			constant.ChannelTypeAzure,
-			constant.ChannelTypeCodex:
+			constant.ChannelTypeCodex,
+			constant.ChannelTypeSub2API,
+			constant.ChannelTypeNewAPI,
+			constant.ChannelTypeAdvancedCustom:
 			return true
 		}
 	}
